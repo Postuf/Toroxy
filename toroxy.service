@@ -1,0 +1,17 @@
+[Unit]
+Description=Toroxy
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=root
+ExecStart=/usr/bin/toroxy service
+ExecStop=/usr/bin/toroxy stop
+ExecReload=/usr/bin/toroxy switch
+
+[Install]
+WantedBy=multi-user.target
+
