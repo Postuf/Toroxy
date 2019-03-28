@@ -3,9 +3,9 @@
 import os
 import sys
 import commands
-from commands import getoutput
 import time
 import signal
+from commands import getoutput
 from stem import Signal
 from stem.control import Controller
 
@@ -96,8 +96,22 @@ def getStartRules():
 	"""%(getoutput("id -ur debian-tor"))
 
 
-def rulesCheckSum():
-	return getoutput("{ iptables-save && ip6tables-save; } | sed s/\-\-uid\-owner\\\\s[0-9]\\\\+\\\\s//g | grep -viE '^#' | grep -viE '^\:' | sort | uniq | sha256sum | cut -d' ' -f 1").strip()
+lastSnapshotFileName = None
+
+
+def rulesAlright():
+	checkSum = getoutput("{ iptables-save && ip6tables-save; } | sed s/\-\-uid\-owner\\\\s[0-9]\\\\+\\\\s//g | grep -viE '^#' | grep -viE '^\:' | sort | uniq | sha256sum | cut -d' ' -f 1").strip()
+
+	alright = checkSum == 'dd152ac82159c1d0a04e4c95034f32f1ec12d49408faae4b9182b576954d018f';
+
+	if not alright:
+		rules = getoutput('iptables-save && ip6tables-save')
+		global lastSnapshotFileName
+		lastSnapshotFileName = "/tmp/broken-rules-%s.log" % time.strftime("%d-%m-%Y_%I-%M-%S")
+		open(lastSnapshotFileName, "w").write(rules)
+		return False
+	else:
+		return True
 
 
 resolvString = "nameserver 127.0.0.1"
@@ -225,10 +239,10 @@ def as_service():
 
 	while True:
 
-		checkSum = rulesCheckSum();
-		if checkSum != 'dd152ac82159c1d0a04e4c95034f32f1ec12d49408faae4b9182b576954d018f':
+		if not rulesAlright():
 			start_torghost()
-			notify('Toroxy', 'IpTables integrity violation detected! Fixed.', 'critical')
+			msg = 'IpTables integrity violation detected!\nSnapshot in %s.\nFixed.' % lastSnapshotFileName
+			notify('Toroxy', msg, 'critical')
 
 		try:
 			ipCurr = urllib2.urlopen("http://ident.me", timeout=1).read()
