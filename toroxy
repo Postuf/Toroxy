@@ -4,190 +4,61 @@ import os
 import sys
 import commands
 import time
+import urllib2
 import signal
 from commands import getoutput
 from stem import Signal
 from stem.control import Controller
 
+class Strings:
 
-class bcolors:
-    BLUE = '\033[94m'
-    GREEN = '\033[92m'
-    RED = '\033[31m'
-    YELLOW = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
-    BGRED = '\033[41m'
-    WHITE = '\033[37m'
+	TORRC_CONFIG = """
+		VirtualAddrNetwork 10.0.0.0/10
+		AutomapHostsOnResolve 1
+		TransPort 9040
+		DNSPort 53
+		ControlPort 9051
+		"""
+	IPTABLES_STOP_RULES = """
+		iptables -P INPUT ACCEPT
+		iptables -P FORWARD ACCEPT
+		iptables -P OUTPUT ACCEPT
+		iptables -t nat -F
+		iptables -t mangle -F
+		iptables -F
+		iptables -X
+		ip6tables -F
+		"""
+	IPTABLES_START_RULES = """
+		NON_TOR="192.168.1.0/24 192.168.0.0/24"
+		TOR_UID=%s
+		TRANS_PORT="9040"
 
+		iptables -F
+		iptables -t nat -F
 
-def t():
-    current_time = time.localtime()
-    ctime = time.strftime('%H:%M:%S', current_time)
-    return "["+ ctime + "]"
-def shutdown():
-	print ""
-	print bcolors.BGRED + bcolors.WHITE + t() + "[info] shutting down torghost" + bcolors.ENDC +"\n\n"
-	sys.exit()
-def sigint_handler(signum, frame):
-    print '\n user interrupt ! shutting down'
-    shutdown()
-def ip():
-	while True:
-		try:
-			ipadd = commands.getstatusoutput('wget -qO- https://check.torproject.org | grep -Po "(?<=strong>)[\d\.]+(?=</strong)"')
-		except :
-			continue
-		break
-	return ipadd[1]
+		iptables -t nat -A OUTPUT -m owner --uid-owner $TOR_UID -j RETURN
+		iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53
+		for NET in $NON_TOR 127.0.0.0/9 127.128.0.0/10; do
+		 iptables -t nat -A OUTPUT -d $NET -j RETURN
+		done
+		iptables -t nat -A OUTPUT -p tcp --syn -j REDIRECT --to-ports $TRANS_PORT
 
-signal.signal(signal.SIGINT, sigint_handler)
+		iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+		for NET in $NON_TOR 127.0.0.0/8; do
+		 iptables -A OUTPUT -d $NET -j ACCEPT
+		done
+		iptables -A OUTPUT -m owner --uid-owner $TOR_UID -j ACCEPT
 
-TorrcCfgString = """
-
-##/////ADDED BY TORGHOST ///
-VirtualAddrNetwork 10.0.0.0/10
-AutomapHostsOnResolve 1
-TransPort 9040
-DNSPort 53
-ControlPort 9051
-
-
-"""
-
-def getStopRules():
-	return """
-	iptables -P INPUT ACCEPT
-	iptables -P FORWARD ACCEPT
-	iptables -P OUTPUT ACCEPT
-	iptables -t nat -F
-	iptables -t mangle -F
-	iptables -F
-	iptables -X
-	ip6tables -F
-	"""
-
-def getStartRules():
-	return """
-	NON_TOR="192.168.1.0/24 192.168.0.0/24"
-	TOR_UID=%s
-	TRANS_PORT="9040"
-
-	iptables -F
-	iptables -t nat -F
-
-	iptables -t nat -A OUTPUT -m owner --uid-owner $TOR_UID -j RETURN
-	iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53
-	for NET in $NON_TOR 127.0.0.0/9 127.128.0.0/10; do
-	 iptables -t nat -A OUTPUT -d $NET -j RETURN
-	done
-	iptables -t nat -A OUTPUT -p tcp --syn -j REDIRECT --to-ports $TRANS_PORT
-
-	iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-	for NET in $NON_TOR 127.0.0.0/8; do
-	 iptables -A OUTPUT -d $NET -j ACCEPT
-	done
-	iptables -A OUTPUT -m owner --uid-owner $TOR_UID -j ACCEPT
-
-	iptables -A OUTPUT -j REJECT
-	ip6tables -A OUTPUT -j REJECT
- 
-	"""%(getoutput("id -ur debian-tor"))
-
-
-lastSnapshotFileName = None
-
-
-def rulesAlright():
-	checkSum = getoutput("{ iptables-save && ip6tables-save; } | sed s/\-\-uid\-owner\\\\s[0-9]\\\\+\\\\s//g | grep -viE '^#' | grep -viE '^\:' | sort | uniq | sha256sum | cut -d' ' -f 1").strip()
-
-	alright = checkSum == 'dd152ac82159c1d0a04e4c95034f32f1ec12d49408faae4b9182b576954d018f';
-
-	if not alright:
-		rules = getoutput('iptables-save && ip6tables-save')
-		global lastSnapshotFileName
-		lastSnapshotFileName = "/tmp/broken-rules-%s.log" % time.strftime("%d-%m-%Y_%I-%M-%S")
-		open(lastSnapshotFileName, "w").write(rules)
-		return False
-	else:
-		return True
-
-
-resolvString = "nameserver 127.0.0.1"
-Torrc = "/etc/tor/torrc"
-resolv = "/etc/resolv.conf"
-
-
-def start_torghost():
-
-	if TorrcCfgString in open(Torrc).read():
-	    print t()+" Torrc file already configured"
-	else:
-
-		with open(Torrc, "a") as myfile:
-
-			myfile.write(TorrcCfgString)
-			print bcolors.GREEN+"[done]"+bcolors.ENDC
-	if resolvString in open(resolv).read():
-	    print t()+" DNS resolv.conf file already configured"
-	else:
-		with open(resolv, "w") as myfile:
-			print t()+" Configuring DNS resolv.conf file.. ",
-			myfile.write(resolvString)
-			print bcolors.GREEN+"[done]"+bcolors.ENDC
-
-	print t()+" Starting tor service.. ",
-	os.system("service tor start")
-	print bcolors.GREEN+"[done]"+bcolors.ENDC
-	print t()+" setting up iptables rules",
-
-	iptables_rules = """
-		%s
-		%s
-	""" % (getStopRules(), getStartRules())
-
-	os.system(iptables_rules)
-	print bcolors.GREEN+"[done]"+bcolors.ENDC
-	print t()+" Fetching current IP..."
-	print t()+" CURRENT IP : "+bcolors.GREEN+ip()+bcolors.ENDC
-
-def stop_torghost():
-	print bcolors.RED+t()+"STOPPING torghost"+bcolors.ENDC
-	print t()+" Flushing iptables, resetting to default",
-
-	os.system(getStopRules())
-
-	print bcolors.GREEN+"[done]"+bcolors.ENDC
-	print t()+" Restarting Network manager",
-	os.system("service network-manager restart")
-	print bcolors.GREEN+"[done]"+bcolors.ENDC
-	print t()+" Fetching current IP..."
-	print t()+" CURRENT IP : "+bcolors.GREEN+ip()+bcolors.ENDC
-
-def switch_tor():
-	print t()+" Please wait..."
-	time.sleep(7)
-	print t()+" Requesting new circuit...",
-	with Controller.from_port(port = 9051) as controller:
-  		controller.authenticate()
-  		controller.signal(Signal.NEWNYM)
-	print bcolors.GREEN+"[done]"+bcolors.ENDC
-	print t()+" Fetching current IP..."
-	print t()+" CURRENT IP : "+bcolors.GREEN+ip()+bcolors.ENDC
-
-
-def install():
-	print "Installing..." + sys.argv[0]
-	os.system("cp '%s' /usr/bin/toroxy" % (sys.argv[0]))
-	start_torghost()
-	os.system("""
+		iptables -A OUTPUT -j REJECT
+		ip6tables -A OUTPUT -j REJECT
+		"""
+	DUMP_TOROXY_IPTTABLES_RULES_CMD = """
 		iptables-save > /etc/iptables/rules.v4
 		ip6tables-save > /etc/iptables/rules.v6
 		netfilter-persistent start && netfilter-persistent save
-	""")
-	stop_torghost()
-	os.system("""
+	"""
+	TOROXY_SETUP_SERVICES_CMD = """
 		cp ./toroxy.service /etc/systemd/system/toroxy.service
 		chmod 644 /etc/systemd/system/toroxy.service
 		systemctl daemon-reload
@@ -203,16 +74,14 @@ def install():
 		systemctl stop netfilter-persistent 
 		systemctl start netfilter-persistent 
 		systemctl enable netfilter-persistent 
-	""")
-
-def notify(title, text='Toroxy', level='critical'):
-	os.system("""
+	"""
+	TOROXY_NOTIFICATION_CMD = """
 
 		# root UI
 		eval "export $(egrep -z DBUS_SESSION_BUS_ADDRESS /proc/$(pgrep -u $LOGNAME gnome-session)/environ)"
 
 		export DISPLAY=:0
-		for USR in `ls /home`
+		for USR in `ls /home && echo root`
 		do
 			# ubuntu gnome + root UI
 			export XAUTHORITY=/home/$USR/.Xauthority
@@ -224,52 +93,132 @@ def notify(title, text='Toroxy', level='critical'):
 				su $USR -c "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$UID/bus notify-send -u {0} '{1}' '{2}'"
 			done
 		done
-	""".format(level, title, text))
+	"""
+	RULES_CHECKSUM_CMD = "{ iptables-save && ip6tables-save; } | sed s/\-\-uid\-owner\\\\s[0-9]\\\\+\\\\s//g | grep -viE '^#' | grep -viE '^\:' | sort | uniq | sha256sum | cut -d' ' -f 1"
+	IP_OBTAIN_CMD = 'wget -qO- https://check.torproject.org | grep -Po "(?<=strong>)[\d\.]+(?=</strong)"'
+	RULES_CHECKSUM_CORRECT_HASH = "dd152ac82159c1d0a04e4c95034f32f1ec12d49408faae4b9182b576954d018f"
+	TOR_DNS = "nameserver 127.0.0.1"
+	TOR_TORRC = "/etc/tor/torrc"
+	RESOLV_FILE = "/etc/resolv.conf"
 
-def as_service():
 
-	ipPrev = None
-	ipCurr = None
+class Toroxy:
 
-	start_torghost()
+	lastSnapshotFileName = None
 
-	import time
-	import urllib2
-	from socket import timeout
-
-	while True:
-
-		if not rulesAlright():
-			start_torghost()
-			msg = 'IpTables integrity violation detected!\nSnapshot in %s.\nFixed.' % lastSnapshotFileName
-			notify('Toroxy', msg, 'critical')
-
+	def ip(self):
 		try:
-			ipCurr = urllib2.urlopen("http://ident.me", timeout=1).read()
-			if not ipCurr == ipPrev:
-				notify('Toroxy', 'Ip changed: '+ipCurr, 'low')
-				ipPrev = ipCurr
-		except:
-			switch_tor()
+			return commands.getstatusoutput(Strings.IP_OBTAIN_CMD)[1]
+		except :
+			return '';
 
-		time.sleep(1)
+	def getStartRules(self):
+		return Strings.IPTABLES_START_RULES%(getoutput("id -ur debian-tor"))
+
+	def rulesOk(self):
+
+		checkSum = getoutput(Strings.RULES_CHECKSUM_CMD).strip()
+		alright = checkSum == Strings.RULES_CHECKSUM_CORRECT_HASH
+
+		if not alright:
+			rules = getoutput('iptables-save && ip6tables-save')
+			self.lastSnapshotFileName = "/tmp/broken-rules-%s.log" % time.strftime("%d-%m-%Y_%I-%M-%S")
+			open(self.lastSnapshotFileName, "w").write(rules)
+			return False
+		else:
+			return True
+
+	def restart(self):
+
+		if not Strings.TORRC_CONFIG in open(Strings.TOR_TORRC).read():
+			with open(Strings.TOR_TORRC, "a") as torrc:
+				torrc.write(Strings.TORRC_CONFIG)
+
+		if not Strings.TOR_DNS in open(Strings.RESOLV_FILE).read():
+			with open(Strings.RESOLV_FILE, "w") as resolvConf:
+				resolvConf.write(Strings.TOR_DNS)
+
+		os.system("service tor start")
+
+		iptables_rules = """
+			%s
+			%s
+		""" % (Strings.IPTABLES_STOP_RULES, self.getStartRules())
+
+		os.system(iptables_rules)
+
+	def stop(self):
+		os.system(Strings.IPTABLES_STOP_RULES)
+		os.system("service network-manager restart")
+
+	def switch(self):
+		time.sleep(7)
+		with Controller.from_port(port = 9051) as controller:
+	  		controller.authenticate()
+	  		controller.signal(Signal.NEWNYM)
+
+	def install(self):
+		os.system("cp '%s' /usr/bin/toroxy" % (sys.argv[0]))
+		self.restart()
+		os.system(Strings.DUMP_TOROXY_IPTTABLES_RULES_CMD)
+		self.stop()
+		os.system(Strings.TOROXY_SETUP_SERVICES_CMD)
+
+	def notify(self, title, text='Toroxy', level='critical'):
+		os.system(Strings.TOROXY_NOTIFICATION_CMD.format(level, title, text))
+
+	def service(self):
+
+		ipPrev = ''
+		self.restart()
+
+		while True:
+
+			if not self.rulesOk():
+				self.restart()
+				msg = 'IpTables integrity violation detected!\nSnapshot in %s.\nFixed.' % self.lastSnapshotFileName
+				self.notify('Toroxy', msg, 'critical')
+
+			try:
+				ipCurr = self.ip().strip()
+				if not ipCurr:
+					raise Exception()
+				if not ipCurr == ipPrev:
+					ipPrev = ipCurr
+					self.notify('Toroxy', 'Ip changed: '+ipCurr, 'low')
+			except:
+				self.switch()
+
+			time.sleep(1)
 
 
-if len(sys.argv) > 1:
+class Signals:
 
-	arg = sys.argv[1:]
+	def shutdown(self):
+		sys.exit()
 
-	if sys.argv[1] == "start":
-		start_torghost()
-	elif sys.argv[1] == "stop":
-		stop_torghost()
-	elif sys.argv[1] == "switch":
-		switch_tor()
-	elif sys.argv[1] == "service":
-		as_service();
-	elif sys.argv[1] == "install":
-		install();
+	def sigint_handler(self, signum, frame):
+	    shutdown()
 
-else:
+	def setup(self):
+		signal.signal(signal.SIGINT, self.sigint_handler)
 
-	print "Use: toroxy start|stop|switch|service|install"
+
+############################################################################
+
+
+if __name__ == "__main__":
+
+	Signals().setup()
+
+	if len(sys.argv) > 1:
+		if sys.argv[1] == "stop":
+			 Toroxy().stop()
+		elif sys.argv[1] == "switch":
+			Toroxy().switch()
+		elif sys.argv[1] == "service":
+			Toroxy().service()
+		elif sys.argv[1] == "install":
+			Toroxy().install()
+	else:
+		print "Use: toroxy stop|switch|service|install"
