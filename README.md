@@ -16,7 +16,16 @@ Traffic won`t leave the system without Tor network.
 Runs as systemd service, watches traffic rules violations and IP cnanges.  
 Immediatelly notifies via UI if any changes detected.
 
-All TCP traffic redirects to Tor. UDP traffic just blocks.   
+All TCP traffic redirects to Tor. UDP traffic just blocks. 
+
+![Ip Changed](meta/screens/ip_changed.png?raw=true "Ip Changed")
+![Rules Violation](meta/screens/rule_violation.png?raw=true "Rules Violation")
+
+UI tested on:
+
+ - Ubuntu 12+
+ - Ubuntu Parallels
+ - Debian 7+
 
 Installation workflow:  
 1. Install dependencies  
