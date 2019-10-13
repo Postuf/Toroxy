@@ -43,12 +43,22 @@ Installation workflow:
 
 ## How to install?
 
-Just type: `sudo ./install.sh` in project root
+1. `git clone https://github.com/Postuf/Toroxy.git`
+2. `cd Toroxy`
+3. `sudo ./install.sh`
+
+## How to check?
+
+`curl ident.me`
+
+## How to uninstall?
+
+Run `sudo ./uninstall.sh` in Toroxy root
 
 ## How to use?
 
 After installation new systemd service **toroxy** appear in local system.  
 It will be enabled by default. Here is how to manage it:
 
-- `service toroxy stop`  - Stop toroxy (disable proxy)
-- `service toroxy reload` - Change identity (switch proxy)
+- Stop toroxy (disable proxy): `toroxy stop` OR `service toroxy stop`
+- Change identity (switch proxy): `toroxy switch` OR `service toroxy reload` 
