@@ -61,4 +61,5 @@ After installation new systemd service **toroxy** appear in local system.
 It will be enabled by default. Here is how to manage it:
 
 - Stop toroxy (disable proxy): `toroxy stop` OR `service toroxy stop`
+- Start toroxy (enable proxy): `toroxy start` OR `service toroxy start`
 - Change identity (switch proxy): `toroxy switch` OR `service toroxy reload` 
