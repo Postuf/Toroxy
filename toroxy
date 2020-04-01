@@ -128,28 +128,45 @@ class Toroxy:
 		else:
 			return True
 
-	def restart(self):
-
-		if not Strings.TORRC_CONFIG in open(Strings.TOR_TORRC).read():
-			with open(Strings.TOR_TORRC, "a") as torrc:
-				torrc.write(Strings.TORRC_CONFIG)
-
+	def changeResolveConf(self):
+		os.system('sudo cp -p %s %s.toroxy.bak' % (Strings.RESOLV_FILE, Strings.RESOLV_FILE))
 		if not Strings.TOR_DNS in open(Strings.RESOLV_FILE).read():
 			with open(Strings.RESOLV_FILE, "w") as resolvConf:
 				resolvConf.write(Strings.TOR_DNS)
 
-		os.system("service tor start")
+	def unchangeResolveConf(self):
+		os.system('sudo mv %s.toroxy.bak %s' % (Strings.RESOLV_FILE, Strings.RESOLV_FILE))
+		os.system("service network-manager restart")
 
+	def changeTorrc(self):
+		os.system('sudo cp -p %s %s.toroxy.bak' % (Strings.TOR_TORRC, Strings.TOR_TORRC))
+		if not Strings.TORRC_CONFIG in open(Strings.TOR_TORRC).read():
+			with open(Strings.TOR_TORRC, "a") as torrc:
+				torrc.write(Strings.TORRC_CONFIG)
+
+	def unchangeTorrc(self):
+		os.system('sudo mv %s.toroxy.bak %s' % (Strings.TOR_TORRC, Strings.TOR_TORRC))
+
+	def changeFirewall(self):
 		iptables_rules = """
 			%s
 			%s
 		""" % (Strings.IPTABLES_STOP_RULES, self.getStartRules())
-
 		os.system(iptables_rules)
 
-	def stop(self):
+	def unchangeFirewall(self):
 		os.system(Strings.IPTABLES_STOP_RULES)
-		os.system("service network-manager restart")
+
+	def restart(self):
+		self.changeTorrc()
+		self.changeResolveConf()
+		os.system("service tor start")
+		self.changeFirewall()
+
+	def stop(self):
+		self.unchangeFirewall()
+		self.unchangeResolveConf()
+		self.unchangeTorrc()
 
 	def switch(self):
 		time.sleep(7)
